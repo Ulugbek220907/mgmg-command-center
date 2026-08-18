@@ -27,7 +27,8 @@ databases:
   - name: mgmg-db
     databaseName: mgmg
     user: mgmg
-    plan: starter
+    plan: basic-256mb  # Render retired the old free/starter/standard/pro Postgres
+                        # plan names — this is their current smallest paid tier.
     postgresMajorVersion: 16
 
 services:
@@ -108,20 +109,19 @@ services:
       mountPath: /home/node/.n8n
       sizeGB: 2
     envVars:
+      # A service can't read its own hostname via fromService (it doesn't
+      # exist yet at the point Render resolves this). Render assigns
+      # <service-name>.onrender.com deterministically, so it's hardcoded here.
+      # If Render appends a suffix because the name collided with an existing
+      # service, update these two values in the Render dashboard after deploy.
       - key: N8N_HOST
-        fromService:
-          type: web
-          name: mgmg-n8n
-          property: host
+        value: mgmg-n8n.onrender.com
       - key: N8N_PROTOCOL
         value: https
       - key: N8N_PORT
         value: "5678"
       - key: WEBHOOK_URL
-        fromService:
-          type: web
-          name: mgmg-n8n
-          property: hostport
+        value: https://mgmg-n8n.onrender.com/
       - key: GENERIC_TIMEZONE
         value: Asia/Tashkent
       - key: TZ
