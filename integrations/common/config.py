@@ -58,7 +58,12 @@ class Settings(BaseSettings):
     sap_verify_ssl: bool = False
     sap_timeout_seconds: int = 60
 
-    # --- amoCRM / Kommo ---
+    # --- MGMG's own sales CRM (replaces amoCRM) ---
+    crm_base_url: str = "https://sales-crm-roan-six.vercel.app"
+    crm_api_key: SecretStr = SecretStr("")
+
+    # --- amoCRM / Kommo (superseded by the in-house CRM above; kept only
+    # for the parts of the codebase not yet migrated off it) ---
     amocrm_subdomain: str = ""
     amocrm_domain: str = "amocrm.ru"
     amocrm_long_lived_token: SecretStr = SecretStr("")

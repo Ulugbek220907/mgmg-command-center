@@ -153,6 +153,10 @@ envVarGroups:
         sync: false
       - key: SAP_PASSWORD
         sync: false
+      - key: CRM_BASE_URL
+        value: https://sales-crm-roan-six.vercel.app
+      - key: CRM_API_KEY
+        sync: false
       - key: AMOCRM_SUBDOMAIN
         sync: false
       - key: AMOCRM_DOMAIN

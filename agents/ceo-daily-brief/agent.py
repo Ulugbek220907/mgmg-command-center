@@ -34,8 +34,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from dataclasses import dataclass, field
 from typing import Any
 
-from integrations.amocrm.client import AmoCRMClient
-from integrations.amocrm.models import PipelineSummary
 from integrations.common import snapshots
 from integrations.common.config import settings
 from integrations.common.db import close_pool, execute, log_action
@@ -43,6 +41,8 @@ from integrations.common.divisions import label as division_label
 from integrations.common.logging_setup import setup_logging
 from integrations.common.money import format_uzs, format_uzs_short
 from integrations.common.timeutil import fmt_date, now_local, now_utc, today_local
+from integrations.crm.client import CRMClient
+from integrations.crm.models import PipelineSummary
 from integrations.microsoft.client import GraphClient
 from integrations.sap.client import SAPClient
 from integrations.sap.models import ARAging, CashAccount
@@ -50,7 +50,7 @@ from integrations.telegram.bot import TelegramBot, escape
 from integrations.verifix.client import AttendanceSummary, VerifixClient, persist_attendance
 
 AGENT = "ceo-daily-brief"
-SOURCE_COUNT = 4  # SAP, amoCRM, Verifix, Microsoft Graph
+SOURCE_COUNT = 4  # SAP, CRM, Verifix, Microsoft Graph
 log = setup_logging(AGENT)
 
 # How many line items to show per section before collapsing into "+N more".
@@ -103,22 +103,22 @@ async def collect(run_id: uuid.UUID) -> BriefData:
 
     results = await asyncio.gather(
         _fetch_sap(run_id),
-        _fetch_amocrm(run_id),
+        _fetch_crm(run_id),
         _fetch_verifix(run_id),
         _fetch_planner(run_id),
         return_exceptions=True,
     )
-    sap_result, amocrm_result, verifix_result, planner_result = results
+    sap_result, crm_result, verifix_result, planner_result = results
 
     if isinstance(sap_result, BaseException):
         data.note_failure("sap", sap_result)
     else:
         data.cash, data.aging = sap_result
 
-    if isinstance(amocrm_result, BaseException):
-        data.note_failure("amocrm", amocrm_result)
+    if isinstance(crm_result, BaseException):
+        data.note_failure("crm", crm_result)
     else:
-        data.pipeline = amocrm_result
+        data.pipeline = crm_result
 
     if isinstance(verifix_result, BaseException):
         data.note_failure("verifix", verifix_result)
@@ -154,8 +154,8 @@ async def _fetch_sap(run_id: uuid.UUID) -> tuple[list[CashAccount], ARAging]:
     return cash, aging
 
 
-async def _fetch_amocrm(run_id: uuid.UUID) -> PipelineSummary:
-    """Pull the pipeline summary from amoCRM and snapshot it.
+async def _fetch_crm(run_id: uuid.UUID) -> PipelineSummary:
+    """Pull the pipeline summary from MGMG's own CRM and snapshot it.
 
     Args:
         run_id: UUID grouping this run's audit rows.
@@ -164,12 +164,12 @@ async def _fetch_amocrm(run_id: uuid.UUID) -> PipelineSummary:
         The pipeline summary.
 
     Raises:
-        AmoCRMError: if amoCRM is unreachable or rejects the queries.
+        CRMError: if the CRM is unreachable or rejects the queries.
     """
-    async with AmoCRMClient(agent=AGENT, run_id=run_id) as amo:
-        summary = await amo.get_pipeline_summary()
+    async with CRMClient(agent=AGENT, run_id=run_id) as crm:
+        summary = await crm.get_pipeline_summary()
 
-    await snapshots.persist_pipeline(summary)
+    await snapshots.persist_crm_pipeline(summary)
     return summary
 
 
@@ -306,9 +306,9 @@ def _render_receivables(data: BriefData) -> str:
 
 
 def _render_pipeline(data: BriefData) -> str:
-    """Render the amoCRM pipeline section."""
+    """Render the CRM pipeline section."""
     if data.pipeline is None:
-        return "📊 <b>Pipeline</b>\n   ⚠️ amoCRM unavailable\n"
+        return "📊 <b>Pipeline</b>\n   ⚠️ CRM unavailable\n"
 
     pipeline = data.pipeline
     stalled = len(pipeline.deals_without_task)
@@ -321,11 +321,13 @@ def _render_pipeline(data: BriefData) -> str:
         f"   {marker} Deals with no next task: {stalled}",
     ]
 
-    for lead in pipeline.deals_without_task[:MAX_LINES]:
-        owner = lead.responsible_user_name or "unassigned"
+    for deal in pipeline.deals_without_task[:MAX_LINES]:
+        # The CRM's API exposes assigned_to only as a numeric manager id —
+        # no endpoint resolves it to a name, unlike amoCRM's user list.
+        owner = f"Manager #{deal.assigned_to}" if deal.assigned_to else "unassigned"
         lines.append(
-            f"   • {escape(lead.name or f'Deal {lead.id}')} — "
-            f"{escape(format_uzs_short(lead.price_tiyin))} ({escape(owner)})"
+            f"   • {escape(deal.title or f'Deal {deal.id}')} — "
+            f"{escape(format_uzs_short(deal.amount_tiyin))} ({escape(owner)})"
         )
     if stalled > MAX_LINES:
         lines.append(f"   <i>+{stalled - MAX_LINES} more</i>")

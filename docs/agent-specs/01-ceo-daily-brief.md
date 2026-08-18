@@ -13,7 +13,7 @@ seconds and the order itself carries meaning:
 
 1. How much cash do we have? (SAP)
 2. Who owes us money and how late are they? (SAP)
-3. What is in the pipeline and what is stalling? (amoCRM)
+3. What is in the pipeline and what is stalling? (MGMG's own CRM)
 4. Who is not at work? (Verifix)
 5. What tasks are overdue? (Microsoft Planner)
 
@@ -23,9 +23,15 @@ seconds and the order itself carries meaning:
 | ------ | ---- | ------ |
 | SAP B1 | Cash/bank G/L balances | `GET /ChartOfAccounts` |
 | SAP B1 | Open A/R invoices, aged | `GET /Invoices` filtered to `bost_Open` |
-| amoCRM | Open deals, stages, next-task dates | `GET /leads`, `GET /leads/pipelines` |
+| MGMG CRM | Open deals, stages, next-task status | `GET /api/external/{deals,manager-tasks,stats}` — see `integrations/crm/client.py` |
 | Verifix | Attendance exceptions | Daily CSV export (API when the token exists) |
 | Graph  | Overdue Planner tasks | `GET /groups/{id}/planner/plans` → `/tasks` |
+
+Migrated off amoCRM on 2026-08-18 — MGMG built its own sales CRM
+(`sales-crm-roan-six.vercel.app`), a read-only-by-design API (the issued key
+has no write scope at all, unlike amoCRM's). Agent 2 (amoCRM Follow-up) has
+*not* been migrated yet and still talks to amoCRM directly — see that agent's
+spec for why the write-endpoint gap changes its design.
 
 ## Outputs
 

@@ -15,6 +15,7 @@ from integrations.common.db import execute_many
 from integrations.common.divisions import division_from_amocrm
 from integrations.common.logging_setup import setup_logging
 from integrations.common.timeutil import today_local
+from integrations.crm.models import PipelineSummary as CRMPipelineSummary
 from integrations.sap.models import ARAging, CashAccount, SalesSummary
 
 log = setup_logging("snapshots")
@@ -131,6 +132,66 @@ async def persist_pipeline(summary: PipelineSummary, snapshot_date: date | None 
             stage.deals_count,
             stage.deals_value_tiyin,
             stage.deals_without_task,
+            summary.new_leads_24h,
+        )
+        for stage in summary.stages
+    ]
+    return await execute_many(
+        """
+        INSERT INTO amocrm_pipeline_snapshots
+            (snapshot_date, pipeline_id, pipeline_name, status_id, status_name,
+             division, deals_count, deals_value_tiyin, deals_without_task, new_leads_24h)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (snapshot_date, pipeline_id, status_id) DO UPDATE SET
+            deals_count        = EXCLUDED.deals_count,
+            deals_value_tiyin  = EXCLUDED.deals_value_tiyin,
+            deals_without_task = EXCLUDED.deals_without_task,
+            new_leads_24h      = EXCLUDED.new_leads_24h,
+            captured_at        = now()
+        """,
+        rows,
+    )
+
+
+# The CRM's own pipeline id — everything lands under one constant "pipeline"
+# since (unlike amoCRM) there is only ever one sales pipeline in this CRM.
+CRM_PIPELINE_ID = 1
+CRM_PIPELINE_NAME = "MGMG CRM"
+
+
+async def persist_crm_pipeline(summary: CRMPipelineSummary, snapshot_date: date | None = None) -> int:
+    """Write MGMG's own-CRM pipeline snapshot to ``amocrm_pipeline_snapshots``.
+
+    Reuses the same table as the old amoCRM snapshots (same reporting shape:
+    one row per stage per day) rather than adding a parallel table, since the
+    CRM this replaces and the one before it both describe "deals by stage."
+
+    Args:
+        summary: The summary from ``CRMClient.get_pipeline_summary``.
+        snapshot_date: Business day; defaults to today in Tashkent.
+
+    Returns:
+        Number of stage rows written.
+
+    Raises:
+        psycopg.Error: on a database failure.
+    """
+    day = snapshot_date or today_local()
+    stalled_by_stage: dict[int | None, int] = {}
+    for deal in summary.deals_without_task:
+        stalled_by_stage[deal.stage_id] = stalled_by_stage.get(deal.stage_id, 0) + 1
+
+    rows = [
+        (
+            day,
+            CRM_PIPELINE_ID,
+            CRM_PIPELINE_NAME,
+            stage.stage_id,
+            stage.name,
+            None,  # this CRM has no division mapping yet
+            stage.count,
+            stage.value_tiyin,
+            stalled_by_stage.get(stage.stage_id, 0),
             summary.new_leads_24h,
         )
         for stage in summary.stages
