@@ -153,6 +153,10 @@ services:
     dockerCommand: python agents/ceo-daily-brief/agent.py
     envVars:
       - fromGroup: mgmg-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgmg-db
+          property: connectionString
 
   # ---------------------------------------------------- Agent 3: receivables
   - type: cron
@@ -164,6 +168,10 @@ services:
     dockerCommand: python agents/receivables/agent.py
     envVars:
       - fromGroup: mgmg-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgmg-db
+          property: connectionString
 
   # --------------------------------------------- Agent 2: nightly safety net
   - type: cron
@@ -175,6 +183,10 @@ services:
     dockerCommand: python agents/amocrm-followup/agent.py --sweep
     envVars:
       - fromGroup: mgmg-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgmg-db
+          property: connectionString
 
   # ------------------------------------------- Agent 2: replay missed events
   - type: cron
@@ -186,6 +198,10 @@ services:
     dockerCommand: python agents/amocrm-followup/agent.py --drain
     envVars:
       - fromGroup: mgmg-shared
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgmg-db
+          property: connectionString
 
 # ----------------------------------------------------------------------------
 # Shared secrets for the four cron jobs. Render prompts for each `sync: false`
@@ -195,10 +211,6 @@ services:
 envVarGroups:
   - name: mgmg-shared
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: mgmg-db
-          property: connectionString
       - key: TZ
         value: Asia/Tashkent
       - key: ENVIRONMENT
