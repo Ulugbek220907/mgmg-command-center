@@ -54,62 +54,16 @@ services:
     plan: free
     healthCheckPath: /health
     envVars:
+      # Every secret now lives in exactly one place: the mgmg-shared
+      # environment group, edited from Render's dashboard under
+      # "Environment Groups" — not on this service directly. All 5 services
+      # (this one + 4 cron jobs) read from that single group, so a value
+      # filled in once is picked up everywhere.
+      - fromGroup: mgmg-shared
       - key: DATABASE_URL
         fromDatabase:
           name: mgmg-db
           property: connectionString
-      - key: TZ
-        value: Asia/Tashkent
-      - key: ENVIRONMENT
-        value: production
-      - key: DRY_RUN
-        value: "false"
-      - key: AGENT_WRITES_ENABLED
-        value: "false"
-      - key: SAP_BASE_URL
-        sync: false
-      - key: SAP_COMPANY_DB
-        sync: false
-      - key: SAP_USERNAME
-        sync: false
-      - key: SAP_PASSWORD
-        sync: false
-      - key: AMOCRM_SUBDOMAIN
-        sync: false
-      - key: AMOCRM_DOMAIN
-        value: amocrm.ru
-      - key: AMOCRM_LONG_LIVED_TOKEN
-        sync: false
-      - key: AMOCRM_WEBHOOK_SECRET
-        sync: false
-      - key: MS_TENANT_ID
-        sync: false
-      - key: MS_CLIENT_ID
-        sync: false
-      - key: MS_CLIENT_SECRET
-        sync: false
-      - key: MS_TEAM_OWNER_UPN
-        sync: false
-      - key: MS_PLANNER_GROUP_ID
-        sync: false
-      - key: MS_PLANNER_DEFAULT_PLAN_ID
-        sync: false
-      - key: TEAMS_SALES_WEBHOOK_URL
-        sync: false
-      - key: TELEGRAM_BOT_TOKEN
-        sync: false
-      - key: TELEGRAM_CEO_CHAT_ID
-        sync: false
-      - key: TELEGRAM_ALERTS_CHAT_ID
-        sync: false
-      - key: VERIFIX_MODE
-        value: csv
-      - key: VERIFIX_BASE_URL
-        sync: false
-      - key: VERIFIX_API_TOKEN
-        sync: false
-      - key: VERIFIX_CSV_DIR
-        value: /app/data/verifix
 
   # n8n intentionally omitted from this free-tier blueprint — see the header
   # comment. Bring it back once you're on paid plans and want the SAP/bank/
@@ -204,6 +158,8 @@ envVarGroups:
       - key: AMOCRM_DOMAIN
         value: amocrm.ru
       - key: AMOCRM_LONG_LIVED_TOKEN
+        sync: false
+      - key: AMOCRM_WEBHOOK_SECRET
         sync: false
       - key: MS_TENANT_ID
         sync: false

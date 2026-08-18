@@ -19,7 +19,7 @@ import psycopg
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from integrations.common.config import settings
+from integrations.common.config import PROJECT_ROOT, settings
 from integrations.common.logging_setup import setup_logging
 
 log = setup_logging("db")
@@ -27,17 +27,27 @@ log = setup_logging("db")
 Mode = Literal["read", "write", "notify"]
 Status = Literal["success", "failure", "skipped", "dry_run"]
 
+SCHEMA_PATH = PROJECT_ROOT / "database" / "schema.sql"
+
 _pool: AsyncConnectionPool | None = None
 
 
 async def get_pool() -> AsyncConnectionPool:
     """Return the process-wide connection pool, opening it on first use.
 
+    Every schema statement is ``CREATE ... IF NOT EXISTS`` / ``CREATE OR
+    REPLACE``, so applying it on every process start is safe and cheap — this
+    is what makes the schema self-provisioning on any host (VPS, Render, a
+    fresh CI run) without a separate migration step that's easy to forget, as
+    it was on the first Render deploy.
+
     Returns:
         An open ``AsyncConnectionPool`` (min 1, max 5 connections).
 
     Raises:
         psycopg.OperationalError: if PostgreSQL is unreachable.
+        psycopg.Error: if the schema fails to apply (e.g. insufficient
+            privileges for ``CREATE EXTENSION``).
     """
     global _pool
     if _pool is None:
@@ -50,7 +60,26 @@ async def get_pool() -> AsyncConnectionPool:
         )
         await _pool.open(wait=True, timeout=10)
         log.debug("PostgreSQL pool opened ({}:{})", settings.postgres_host, settings.postgres_port)
+        await _ensure_schema(_pool)
     return _pool
+
+
+async def _ensure_schema(pool: AsyncConnectionPool) -> None:
+    """Apply ``database/schema.sql`` against the given pool.
+
+    Args:
+        pool: An already-open connection pool.
+
+    Raises:
+        psycopg.Error: if the schema fails to apply.
+    """
+    sql = SCHEMA_PATH.read_text(encoding="utf-8")
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            # No parameters -> psycopg uses the simple query protocol, which
+            # runs every ';'-separated statement in the file as one script.
+            await cur.execute(sql)
+    log.info("Schema ensured ({})", SCHEMA_PATH.name)
 
 
 async def close_pool() -> None:
