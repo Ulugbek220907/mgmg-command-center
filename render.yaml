@@ -151,8 +151,8 @@ services:
     plan: starter
     schedule: "0 3 * * *"  # 08:00 Asia/Tashkent
     dockerCommand: python agents/ceo-daily-brief/agent.py
-    envVarGroups:
-      - mgmg-shared
+    envVars:
+      - fromGroup: mgmg-shared
 
   # ---------------------------------------------------- Agent 3: receivables
   - type: cron
@@ -162,8 +162,8 @@ services:
     plan: starter
     schedule: "0 4 * * *"  # 09:00 Asia/Tashkent
     dockerCommand: python agents/receivables/agent.py
-    envVarGroups:
-      - mgmg-shared
+    envVars:
+      - fromGroup: mgmg-shared
 
   # --------------------------------------------- Agent 2: nightly safety net
   - type: cron
@@ -173,8 +173,8 @@ services:
     plan: starter
     schedule: "0 16 * * *"  # 21:00 Asia/Tashkent
     dockerCommand: python agents/amocrm-followup/agent.py --sweep
-    envVarGroups:
-      - mgmg-shared
+    envVars:
+      - fromGroup: mgmg-shared
 
   # ------------------------------------------- Agent 2: replay missed events
   - type: cron
@@ -184,8 +184,8 @@ services:
     plan: starter
     schedule: "0 * * * *"  # hourly — the live webhook handles the common case
     dockerCommand: python agents/amocrm-followup/agent.py --drain
-    envVarGroups:
-      - mgmg-shared
+    envVars:
+      - fromGroup: mgmg-shared
 
 # ----------------------------------------------------------------------------
 # Shared secrets for the four cron jobs. Render prompts for each `sync: false`
