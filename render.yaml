@@ -1,0 +1,251 @@
+# ============================================================================
+# Render Blueprint — deploys the whole MGMG Command Center from one file.
+#
+# What this creates:
+#   mgmg-db          managed PostgreSQL (the central data store)
+#   mgmg-api         FastAPI webhook receiver (amoCRM + Telegram callbacks) —
+#                     always-on, so amoCRM webhooks never hit a cold start
+#   mgmg-n8n         n8n, for the SAP/bank/CCTV workflows outside the Python agents
+#   mgmg-brief       cron: CEO daily brief, 08:00 Tashkent (03:00 UTC)
+#   mgmg-receivables cron: receivables alert, 09:00 Tashkent (04:00 UTC)
+#   mgmg-followup-sweep  cron: nightly stalled-deal sweep, 21:00 Tashkent (16:00 UTC)
+#   mgmg-followup-drain  cron: replay missed webhook events, hourly
+#
+# Deploy: push this repo to GitHub, then in the Render dashboard choose
+# New → Blueprint and point it at the repo. Render reads this file and
+# creates everything above in one pass. Secrets marked `sync: false` are
+# NOT filled in here — Render will prompt for each one during setup, and
+# they are stored in Render's own secret store, never in this repo.
+#
+# Cost note: nothing here is free. mgmg-db and both web services need a paid
+# instance type to stay warm and (for n8n) to get a persistent disk; cron
+# jobs are billed per run. Budget roughly $20-30/month total on Starter tiers
+# — check current Render pricing before deploying.
+# ============================================================================
+
+databases:
+  - name: mgmg-db
+    databaseName: mgmg
+    user: mgmg
+    plan: starter
+    postgresMajorVersion: 16
+
+services:
+  # ------------------------------------------------------------- api (FastAPI)
+  - type: web
+    name: mgmg-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgmg-db
+          property: connectionString
+      - key: TZ
+        value: Asia/Tashkent
+      - key: ENVIRONMENT
+        value: production
+      - key: DRY_RUN
+        value: "false"
+      - key: AGENT_WRITES_ENABLED
+        value: "false"
+      - key: SAP_BASE_URL
+        sync: false
+      - key: SAP_COMPANY_DB
+        sync: false
+      - key: SAP_USERNAME
+        sync: false
+      - key: SAP_PASSWORD
+        sync: false
+      - key: AMOCRM_SUBDOMAIN
+        sync: false
+      - key: AMOCRM_DOMAIN
+        value: amocrm.ru
+      - key: AMOCRM_LONG_LIVED_TOKEN
+        sync: false
+      - key: AMOCRM_WEBHOOK_SECRET
+        sync: false
+      - key: MS_TENANT_ID
+        sync: false
+      - key: MS_CLIENT_ID
+        sync: false
+      - key: MS_CLIENT_SECRET
+        sync: false
+      - key: MS_TEAM_OWNER_UPN
+        sync: false
+      - key: MS_PLANNER_GROUP_ID
+        sync: false
+      - key: MS_PLANNER_DEFAULT_PLAN_ID
+        sync: false
+      - key: TEAMS_SALES_WEBHOOK_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CEO_CHAT_ID
+        sync: false
+      - key: TELEGRAM_ALERTS_CHAT_ID
+        sync: false
+      - key: VERIFIX_MODE
+        value: csv
+      - key: VERIFIX_BASE_URL
+        sync: false
+      - key: VERIFIX_API_TOKEN
+        sync: false
+      - key: VERIFIX_CSV_DIR
+        value: /app/data/verifix
+
+  # --------------------------------------------------------------------- n8n
+  - type: web
+    name: mgmg-n8n
+    runtime: image
+    image:
+      url: docker.io/n8nio/n8n:latest
+    plan: starter
+    disk:
+      name: n8n-data
+      mountPath: /home/node/.n8n
+      sizeGB: 2
+    envVars:
+      - key: N8N_HOST
+        fromService:
+          type: web
+          name: mgmg-n8n
+          property: host
+      - key: N8N_PROTOCOL
+        value: https
+      - key: N8N_PORT
+        value: "5678"
+      - key: WEBHOOK_URL
+        fromService:
+          type: web
+          name: mgmg-n8n
+          property: hostport
+      - key: GENERIC_TIMEZONE
+        value: Asia/Tashkent
+      - key: TZ
+        value: Asia/Tashkent
+      - key: N8N_ENCRYPTION_KEY
+        generateValue: true
+      - key: N8N_BASIC_AUTH_ACTIVE
+        value: "true"
+      - key: N8N_BASIC_AUTH_USER
+        sync: false
+      - key: N8N_BASIC_AUTH_PASSWORD
+        generateValue: true
+      - key: N8N_DIAGNOSTICS_ENABLED
+        value: "false"
+      - key: N8N_RUNNERS_ENABLED
+        value: "true"
+      - key: EXECUTIONS_DATA_PRUNE
+        value: "true"
+      - key: EXECUTIONS_DATA_MAX_AGE
+        value: "336"
+
+  # --------------------------------------------------------- Agent 1: brief
+  - type: cron
+    name: mgmg-brief
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    schedule: "0 3 * * *"  # 08:00 Asia/Tashkent
+    dockerCommand: python agents/ceo-daily-brief/agent.py
+    envVarGroups:
+      - mgmg-shared
+
+  # ---------------------------------------------------- Agent 3: receivables
+  - type: cron
+    name: mgmg-receivables
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    schedule: "0 4 * * *"  # 09:00 Asia/Tashkent
+    dockerCommand: python agents/receivables/agent.py
+    envVarGroups:
+      - mgmg-shared
+
+  # --------------------------------------------- Agent 2: nightly safety net
+  - type: cron
+    name: mgmg-followup-sweep
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    schedule: "0 16 * * *"  # 21:00 Asia/Tashkent
+    dockerCommand: python agents/amocrm-followup/agent.py --sweep
+    envVarGroups:
+      - mgmg-shared
+
+  # ------------------------------------------- Agent 2: replay missed events
+  - type: cron
+    name: mgmg-followup-drain
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    schedule: "0 * * * *"  # hourly — the live webhook handles the common case
+    dockerCommand: python agents/amocrm-followup/agent.py --drain
+    envVarGroups:
+      - mgmg-shared
+
+# ----------------------------------------------------------------------------
+# Shared secrets for the four cron jobs. Render prompts for each `sync: false`
+# value once, at blueprint creation, and reuses it across every service in
+# the group — you do not re-enter SAP/amoCRM/Telegram credentials four times.
+# ----------------------------------------------------------------------------
+envVarGroups:
+  - name: mgmg-shared
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: mgmg-db
+          property: connectionString
+      - key: TZ
+        value: Asia/Tashkent
+      - key: ENVIRONMENT
+        value: production
+      - key: DRY_RUN
+        value: "false"
+      - key: AGENT_WRITES_ENABLED
+        value: "false"
+      - key: SAP_BASE_URL
+        sync: false
+      - key: SAP_COMPANY_DB
+        sync: false
+      - key: SAP_USERNAME
+        sync: false
+      - key: SAP_PASSWORD
+        sync: false
+      - key: AMOCRM_SUBDOMAIN
+        sync: false
+      - key: AMOCRM_DOMAIN
+        value: amocrm.ru
+      - key: AMOCRM_LONG_LIVED_TOKEN
+        sync: false
+      - key: MS_TENANT_ID
+        sync: false
+      - key: MS_CLIENT_ID
+        sync: false
+      - key: MS_CLIENT_SECRET
+        sync: false
+      - key: MS_TEAM_OWNER_UPN
+        sync: false
+      - key: MS_PLANNER_GROUP_ID
+        sync: false
+      - key: MS_PLANNER_DEFAULT_PLAN_ID
+        sync: false
+      - key: TEAMS_SALES_WEBHOOK_URL
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CEO_CHAT_ID
+        sync: false
+      - key: TELEGRAM_ALERTS_CHAT_ID
+        sync: false
+      - key: VERIFIX_MODE
+        value: csv
+      - key: VERIFIX_BASE_URL
+        sync: false
+      - key: VERIFIX_API_TOKEN
+        sync: false
+      - key: VERIFIX_CSV_DIR
+        value: /app/data/verifix
