@@ -1,16 +1,22 @@
 # ============================================================================
-# Render Blueprint — FREE-TIER TEST DEPLOYMENT.
+# Render Blueprint — LOW-COST TEST DEPLOYMENT (~$4/month).
 #
 # This deploys just enough to test the three agents end-to-end against
-# sandbox accounts, at zero cost. What it creates:
+# sandbox accounts. What it creates:
 #   mgmg-db          PostgreSQL, free plan — EXPIRES 30 DAYS after creation
 #                     unless upgraded (Render deletes it, not just suspends it)
 #   mgmg-api         FastAPI webhook receiver, free plan — sleeps after 15 min
 #                     idle, ~30-50s cold start on the next webhook
-#   mgmg-brief       cron: CEO daily brief
-#   mgmg-receivables cron: receivables alert
-#   mgmg-followup-sweep  cron: nightly stalled-deal sweep
-#   mgmg-followup-drain  cron: replay missed webhook events
+#   mgmg-brief       cron: CEO daily brief             (starter, ~$1/mo)
+#   mgmg-receivables cron: receivables alert            (starter, ~$1/mo)
+#   mgmg-followup-sweep  cron: nightly stalled-deal sweep (starter, ~$1/mo)
+#   mgmg-followup-drain  cron: replay missed webhook events (starter, ~$1/mo)
+#
+# Cost: Render has no free tier for cron jobs at all (confirmed against
+# docs.render.com/blueprint-spec) — minimum is the "starter" plan, billed
+# per-minute with a ~$1/month minimum per cron service. Four separate cron
+# services therefore run about $4/month total; the database and web service
+# stay on Render's genuine free plan. Total: ~$4/month, not $0.
 #
 # n8n is NOT deployed here: it needs a persistent disk, and disks require a
 # paid instance on Render. None of the three agents depend on n8n — they talk
@@ -27,9 +33,9 @@
 # NOT filled in here — Render prompts for each one during setup and stores
 # them in its own secret store, never in this repo.
 #
-# When you're ready for production: bump every `plan: free` below to a paid
-# tier (`basic-256mb` for the database, `starter` for services), add n8n
-# back, and point every credential at MGMG's real systems.
+# When you're ready for production: bump mgmg-db and mgmg-api off the free
+# plan (`basic-256mb` / `starter`), add n8n back, and point every credential
+# at MGMG's real systems.
 # ============================================================================
 
 databases:
@@ -114,7 +120,7 @@ services:
     name: mgmg-brief
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: starter  # cron has no free tier; billed per-minute, ~$1/mo minimum each
     schedule: "0 3 * * *"  # 08:00 Asia/Tashkent
     dockerCommand: python agents/ceo-daily-brief/agent.py
     envVars:
@@ -129,7 +135,7 @@ services:
     name: mgmg-receivables
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: starter  # cron has no free tier; billed per-minute, ~$1/mo minimum each
     schedule: "0 4 * * *"  # 09:00 Asia/Tashkent
     dockerCommand: python agents/receivables/agent.py
     envVars:
@@ -144,7 +150,7 @@ services:
     name: mgmg-followup-sweep
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: starter  # cron has no free tier; billed per-minute, ~$1/mo minimum each
     schedule: "0 16 * * *"  # 21:00 Asia/Tashkent
     dockerCommand: python agents/amocrm-followup/agent.py --sweep
     envVars:
@@ -159,7 +165,7 @@ services:
     name: mgmg-followup-drain
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: free
+    plan: starter  # cron has no free tier; billed per-minute, ~$1/mo minimum each
     schedule: "0 * * * *"  # hourly — the live webhook handles the common case
     dockerCommand: python agents/amocrm-followup/agent.py --drain
     envVars:
