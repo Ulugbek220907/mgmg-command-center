@@ -1,34 +1,42 @@
 # ============================================================================
-# Render Blueprint — deploys the whole MGMG Command Center from one file.
+# Render Blueprint — FREE-TIER TEST DEPLOYMENT.
 #
-# What this creates:
-#   mgmg-db          managed PostgreSQL (the central data store)
-#   mgmg-api         FastAPI webhook receiver (amoCRM + Telegram callbacks) —
-#                     always-on, so amoCRM webhooks never hit a cold start
-#   mgmg-n8n         n8n, for the SAP/bank/CCTV workflows outside the Python agents
-#   mgmg-brief       cron: CEO daily brief, 08:00 Tashkent (03:00 UTC)
-#   mgmg-receivables cron: receivables alert, 09:00 Tashkent (04:00 UTC)
-#   mgmg-followup-sweep  cron: nightly stalled-deal sweep, 21:00 Tashkent (16:00 UTC)
-#   mgmg-followup-drain  cron: replay missed webhook events, hourly
+# This deploys just enough to test the three agents end-to-end against
+# sandbox accounts, at zero cost. What it creates:
+#   mgmg-db          PostgreSQL, free plan — EXPIRES 30 DAYS after creation
+#                     unless upgraded (Render deletes it, not just suspends it)
+#   mgmg-api         FastAPI webhook receiver, free plan — sleeps after 15 min
+#                     idle, ~30-50s cold start on the next webhook
+#   mgmg-brief       cron: CEO daily brief
+#   mgmg-receivables cron: receivables alert
+#   mgmg-followup-sweep  cron: nightly stalled-deal sweep
+#   mgmg-followup-drain  cron: replay missed webhook events
+#
+# n8n is NOT deployed here: it needs a persistent disk, and disks require a
+# paid instance on Render. None of the three agents depend on n8n — they talk
+# to SAP/amoCRM/Verifix/Graph/Telegram directly — so it's safe to leave out
+# until you're ready to pay for a disk. Add it back from git history
+# (`git log -- render.yaml`, the n8n block from before this comment was added)
+# when you upgrade.
+#
+# Before you fill in secrets: use sandbox/trial accounts, not MGMG's real
+# SAP, amoCRM or Microsoft 365 — see the chat for where to get each for free.
 #
 # Deploy: push this repo to GitHub, then in the Render dashboard choose
-# New → Blueprint and point it at the repo. Render reads this file and
-# creates everything above in one pass. Secrets marked `sync: false` are
-# NOT filled in here — Render will prompt for each one during setup, and
-# they are stored in Render's own secret store, never in this repo.
+# New → Blueprint and point it at the repo. Secrets marked `sync: false` are
+# NOT filled in here — Render prompts for each one during setup and stores
+# them in its own secret store, never in this repo.
 #
-# Cost note: nothing here is free. mgmg-db and both web services need a paid
-# instance type to stay warm and (for n8n) to get a persistent disk; cron
-# jobs are billed per run. Budget roughly $20-30/month total on Starter tiers
-# — check current Render pricing before deploying.
+# When you're ready for production: bump every `plan: free` below to a paid
+# tier (`basic-256mb` for the database, `starter` for services), add n8n
+# back, and point every credential at MGMG's real systems.
 # ============================================================================
 
 databases:
   - name: mgmg-db
     databaseName: mgmg
     user: mgmg
-    plan: basic-256mb  # Render retired the old free/starter/standard/pro Postgres
-                        # plan names — this is their current smallest paid tier.
+    plan: free  # expires 30 days after creation — see note above
     postgresMajorVersion: 16
 
 services:
@@ -37,7 +45,7 @@ services:
     name: mgmg-api
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /health
     envVars:
       - key: DATABASE_URL
@@ -97,58 +105,16 @@ services:
       - key: VERIFIX_CSV_DIR
         value: /app/data/verifix
 
-  # --------------------------------------------------------------------- n8n
-  - type: web
-    name: mgmg-n8n
-    runtime: image
-    image:
-      url: docker.io/n8nio/n8n:latest
-    plan: starter
-    disk:
-      name: n8n-data
-      mountPath: /home/node/.n8n
-      sizeGB: 2
-    envVars:
-      # A service can't read its own hostname via fromService (it doesn't
-      # exist yet at the point Render resolves this). Render assigns
-      # <service-name>.onrender.com deterministically, so it's hardcoded here.
-      # If Render appends a suffix because the name collided with an existing
-      # service, update these two values in the Render dashboard after deploy.
-      - key: N8N_HOST
-        value: mgmg-n8n.onrender.com
-      - key: N8N_PROTOCOL
-        value: https
-      - key: N8N_PORT
-        value: "5678"
-      - key: WEBHOOK_URL
-        value: https://mgmg-n8n.onrender.com/
-      - key: GENERIC_TIMEZONE
-        value: Asia/Tashkent
-      - key: TZ
-        value: Asia/Tashkent
-      - key: N8N_ENCRYPTION_KEY
-        generateValue: true
-      - key: N8N_BASIC_AUTH_ACTIVE
-        value: "true"
-      - key: N8N_BASIC_AUTH_USER
-        sync: false
-      - key: N8N_BASIC_AUTH_PASSWORD
-        generateValue: true
-      - key: N8N_DIAGNOSTICS_ENABLED
-        value: "false"
-      - key: N8N_RUNNERS_ENABLED
-        value: "true"
-      - key: EXECUTIONS_DATA_PRUNE
-        value: "true"
-      - key: EXECUTIONS_DATA_MAX_AGE
-        value: "336"
+  # n8n intentionally omitted from this free-tier blueprint — see the header
+  # comment. Bring it back once you're on paid plans and want the SAP/bank/
+  # CCTV workflows that live in n8n rather than in these Python agents.
 
   # --------------------------------------------------------- Agent 1: brief
   - type: cron
     name: mgmg-brief
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     schedule: "0 3 * * *"  # 08:00 Asia/Tashkent
     dockerCommand: python agents/ceo-daily-brief/agent.py
     envVars:
@@ -163,7 +129,7 @@ services:
     name: mgmg-receivables
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     schedule: "0 4 * * *"  # 09:00 Asia/Tashkent
     dockerCommand: python agents/receivables/agent.py
     envVars:
@@ -178,7 +144,7 @@ services:
     name: mgmg-followup-sweep
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     schedule: "0 16 * * *"  # 21:00 Asia/Tashkent
     dockerCommand: python agents/amocrm-followup/agent.py --sweep
     envVars:
@@ -193,7 +159,7 @@ services:
     name: mgmg-followup-drain
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     schedule: "0 * * * *"  # hourly — the live webhook handles the common case
     dockerCommand: python agents/amocrm-followup/agent.py --drain
     envVars:
